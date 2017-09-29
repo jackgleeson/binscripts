@@ -1,0 +1,8 @@
+#!/bin/bash
+GROUP=DonationInterface
+if [ $# -ne 0 ]
+  then GROUP=$1;
+fi
+cd "$MW_INSTALL_PATH/tests/phpunit"
+php -dxdebug.remote_enable=1 phpunit.php --group=$GROUP
+cd -

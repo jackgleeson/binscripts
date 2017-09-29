@@ -1,0 +1,48 @@
+#!/bin/bash
+# Prune merged branches
+DOIT=false
+read -r -p "Actually delete branches? [y/N] " response
+if [[ $response =~ ^[yY]$ ]]
+then
+	echo 'OK, boss'
+	DOIT=true
+fi
+for i in `git branch | grep -v master | grep -v deploy | grep -v '*'`
+do
+	if git branch -d $i &>/dev/null
+	then
+		echo "Simple delete: $i"
+	else
+		NUMCOMMITS=`git log --oneline --no-merges master..$i | wc -l`
+		NUMCHANGEIDS=`git log --no-merges master..$i | grep -c 'Change-Id: '`
+		if [[ $NUMCOMMITS != $NUMCHANGEIDS ]]
+		then
+			echo "Can't find change ids for all commits on $i"
+			continue
+		fi
+		#echo "Checking change ids on $i"
+		ALLFOUND=true
+		for j in `git log --no-merges master..$i | grep 'Change-Id: ' | sed -e 's/^\s*//' -e 's/ /\\\\s/'`
+		do
+			k=${j/\\s/}
+			#echo "looking for $k"
+			if git log master | grep -q $j
+			then
+				false;#nothing
+			else
+				echo "Unmerged $k on $i"
+				ALLFOUND=false
+				break
+			fi
+		done
+		if [[ $ALLFOUND = "true" ]]
+		then
+			if [[ $DOIT = "true" ]]
+			then
+				git branch -D $i
+			else
+				echo "Would delete branch $i"
+			fi
+		fi
+	fi
+done

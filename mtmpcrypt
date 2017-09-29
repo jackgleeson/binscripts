@@ -1,0 +1,2 @@
+#!/bin/bash
+encfs --reverse --extpass='cat $HOME/.ssh/encfs' $HOME/ /tmp/crypt
