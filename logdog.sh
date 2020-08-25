@@ -92,7 +92,7 @@ else
 fi
 
 if [[ -z "$FOLDERNAME" ]]; then
-    FOLDERNAME=$(echo "$QUERY" | /bin/sed 's/ *$//g' | /bin/sed 's/ /_/g')
+    FOLDERNAME=$(echo "$QUERY" | /bin/sed 's/ *$//g' | /bin/sed 's/ /_/g' | /bin/sed 's/\//__/g')
     OUTPUT_FOLDER=""$OUTPUT_DIR""$FOLDERNAME"/"
 else
     FOLDERNAME=$(echo "$FOLDERNAME" | /bin/sed 's/ *$//g' | /bin/sed 's/ /_/g')
@@ -156,11 +156,11 @@ function logdog() {
 }
 
 ### HOST-BASED SELECTIONS ###
-if [[ $HOSTNAME == $CIVI1001 || "$DEBUG" == true ]]; then
+if [[ $HOSTNAME == $CIVI1001 ]]; then
     PATHS=( "$CIVI_CURRENT_PROCESS_CONTROL_PATH")
     PATTERNS=( "$CIVI_CURRENT_PROCESS_CONTROL_PATTERN")
     GREPPERS=( "$CIVI_CURRENT_PROCESS_CONTROL_GREP")
-elif [[ $HOSTNAME == $FRLOG1001 ]]; then
+elif [[ $HOSTNAME == $FRLOG1001 || "$DEBUG" == true ]]; then
     PATHS=( "$FRLOG_CURRENT_PATH" "$FRLOG_ARCHIVE_PATH" )
     PATTERNS=( "$FRLOG_CURRENT_PATTERN" "$FRLOG_ARCHIVE_PATTERN" )
     GREPPERS=( "$FRLOG_CURRENT_GREP" "$FRLOG_ARCHIVE_GREP" )
