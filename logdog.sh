@@ -79,11 +79,14 @@ else
     QUERY="$1"
 fi
 
+YEAR=$(date +"%Y")
+MONTH=$(date +"%m")
+DAY=$(date +"%d")
+TODAY="$YEAR$MONTH$DAY"
+
 if [[ -z "$DATE" ]]; then
-    YEAR=$(date +"%Y")
-    MONTH=$(date +"%m")
-    DAY=$(date +"%d" -d "yesterday")
-    DATE="$YEAR$MONTH$DAY"
+    PREVIOUSDAY=$(date +"%d" -d "yesterday")
+    DATE="$YEAR$MONTH$PREVIOUSDAY"
 else
     # if a partial date is supplied treat it as a wildcard
     if [[ ${#DATE} -lt 8 ]]; then
@@ -105,17 +108,17 @@ FRLOG_CURRENT_PATTERN="*" # all actual files in dir e.g. fundraising-misc
 FRLOG_CURRENT_GREP="$GREP"
 
 FRLOG_ARCHIVE_PATH="/srv/archive/frlog1001/logs"
-FRLOG_ARCHIVE_PATTERN="*-"$DATE".gz" # e.g. payments-20200807.gz
+FRLOG_ARCHIVE_PATTERN="*-"$YESTERDAY".gz" # e.g. payments-20200807.gz
 FRLOG_ARCHIVE_GREP="$ZGREP"
 
 # civi process-control logs are archived on frlog1001 (NOT SEARCHED ATM - see TODO at top)
-FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH="/srv/archive/civi/process-control/"$DATE""
+FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH="/srv/archive/civi/process-control/"$YESTERDAY""
 FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATTERN="*.bz2" # e.g. 20200805/thank_you_mail_send-20200805-235902.log.civi1001.bz2
 FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_GREP="$BZGREP"
 
 ### CIVI PATHS, PATTERNS AND GREPPERS ###
 CIVI_CURRENT_PROCESS_CONTROL_PATH="/var/log/process-control" # job folders e.g. silverpop_daily
-CIVI_CURRENT_PROCESS_CONTROL_PATTERN="*-"$DATE".log" # e.g. silverpop_daily-20200807-154459.log
+CIVI_CURRENT_PROCESS_CONTROL_PATTERN="*-"$DATE"*.log" # e.g. silverpop_daily-20200807-154459.log
 CIVI_CURRENT_PROCESS_CONTROL_GREP="$GREP"
 
 # this path holds soon-to-be-archived logs (NOT SEARCHED ATM - see TODO at top)
@@ -155,6 +158,20 @@ function logdog() {
     echo -e "$WHITE"
 }
 
+function summary() {
+    echo "begin summary"
+    local ID_PATTERN="[0-9]{8}:[0-9]{8}.[0-9]{1}"
+    local CT_ID_PATTERN="^[0-9]{8}"
+    local ORDER_ID_PATTERN="[0-9]{8}.[0-9]{1}$"
+    ID_RESULT=$("$GREP" -Ehroi "$ID_PATTERN" "$1")
+    CT_ID_RESULT=$(echo "$ID_RESULT" | "$GREP" -Eo "$CT_ID_PATTERN")
+    ORDER_ID_RESULT=$(echo "$ID_RESULT" | "$GREP" -Eo "$ORDER_ID_PATTERN")
+    echo "$ID_RESULT"
+    echo "$CT_ID_RESULT"
+    echo "$ORDER_ID_RESULT"
+    echo "end summary"
+}
+
 ### HOST-BASED SELECTIONS ###
 if [[ $HOSTNAME == $CIVI1001 ]]; then
     PATHS=( "$CIVI_CURRENT_PROCESS_CONTROL_PATH")
@@ -173,3 +190,4 @@ fi
 for i in "${!PATHS[@]}"; do
     logdog "${PATHS[i]}" "${PATTERNS[i]}" ${GREPPERS[i]} "$QUERY"
 done
+summary "$OUTPUT_FOLDER" "$QUERY"
