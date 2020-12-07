@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 #             .--.             .---.
 #            /:.  '.         .' ..  '._.---.
 #           /:::-.  \.-"""-;` .-:::.     .::\
@@ -12,13 +11,31 @@
 #                 '---`|I|`---'
 #                      '-'
 # Logdog, an e-dog that sniffs through logs for interesting stuff. Woof!
-#
+
+# ####
+# HOW TO USE (on civi1001 & frlog1001):
+: <<'STEPS'
+ 1) Add script to $HOME/bin dir:
+ - cd to $HOME
+ - run `mkdir ./bin`
+ - run `cat > ./bin/logdog`
+ - select and copy the entire contents of this file
+ - press Ctrl+Shift+V (to paste to cli)
+ - press Ctrl+D (To save)
+ - run `chmod +x ./bin/logdog`
+ 2) Add script to your PATH
+ - run `echo 'if [ -d "$HOME/bin" ] ; then
+    PATH="$HOME/bin:$PATH"
+fi' >> .profile`
+ - run `source .profile`
+ 3) Run Logdog
+ - run `logdog -h`
+STEPS
 # ####
 # TODO:
-# - make logdog work with bzgrep. (done)
-# - pull out psp if available and print to summary
-# - maybe as a summary block to output.
-# -- other useful consistent log data could also be displayed in some type of summary block
+# - pull out psp if available
+# - extend the above and add more as a summary block.
+# -- other useful consistent log data such as ct_ids, emails, final status
 # - read in log paths, patterns and greps from cfg ile to make it easier to swap out cfg
 # ####
 PATH="/usr/bin:$PATH"
@@ -26,6 +43,9 @@ export PATH
 ### CONSTANTS ###
 OUTPUT_DIR="$HOME/logdog/"
 YELLOW="\e[93m"
+WHITE="\e[39m"
+BOLDB="\e[1m"
+BOLDE="\e[0m"
 WHITE="\e[39m"
 GREP="/bin/grep"
 ZGREP="/bin/zgrep"
@@ -38,22 +58,42 @@ BZCAT="/bin/bzcat"
 CIVI1001="civi1001"
 FRLOG1001="frlog1001"
 
-# DEBUG HOST
-if [[ $HOSTNAME == 'mwv' ]]; then
-  DEBUG=true
-else
-  DEBUG=false
-fi
+trap ctrl_c INT
+
+ctrl_c() {
+  tput sgr0
+  exit
+}
 
 function display_help() {
   echo -e "$WHITE"
-  echo "Logdog helps you find stuff in the logs!"
-  echo
+  echo -e "$BOLDB""Logdog helps you find stuff in the logs!""$BOLDE"
+  echo ""
   echo "Syntax: logdog [-d|o|h] query"
+  echo ""
   echo "options:"
-  echo "-d 20201201   add a custom YYYYMMDD date filter when searching (defaults to yesterday's date)"
-  echo "-o output_folder_name   dump log file hits to a custom folder name (defaults to query as folder name)"
-  echo "-h    Print this Help."
+  echo "-d YYYYMMDD add a custom date filter when searching (defaults to yesterday's date)"
+  echo "-o folder_name  write file hits to a custom folder name (defaults to query as folder name)"
+  echo "-h print this help."
+  echo "==============================================="
+  echo ""
+  echo -e "Examples:"
+  echo ""
+  echo "Quick Search:"
+  echo -e "      ""$BOLDB""logdog order_id_12345""$BOLDE"
+  echo "Outputs results to $HOME/logdog/order_id_12345"
+  echo ""
+  echo "Search and write results to a custom output directory:"
+  echo -e "      ""$BOLDB""logdog -o my_search order_id_12345""$BOLDE"
+  echo "Outputs results to $HOME/logdog/my_search"
+  echo ""
+  echo "Search on a specific date:"
+  echo -e "      ""$BOLDB""logdog -d 20201201 order_id_12345""$BOLDE"
+  echo "Outputs results to $HOME/logdog/order_id_12345"
+  echo ""
+  echo "Search across multiple dates using wildcards:"
+  echo -e "      ""$BOLDB""logdog -d 202012* order_id_12345""$BOLDE"
+  echo "Outputs all results from December 2020 to $HOME/logdog/order_id_12345"
   exit 0
 }
 
@@ -89,7 +129,7 @@ if [[ -z "$DATE" ]]; then
 else
   # if a partial date is supplied treat it as a wildcard
   if [[ ${#DATE} -lt 8 ]]; then
-    DATE="*$DATE*"
+    DATE="$DATE*"
   fi
   CURRENT_DATE=$TODAY
   ARCHIVE_DATE=$DATE
@@ -126,8 +166,8 @@ CIVI_CURRENT_PROCESS_CONTROL_PATH="/var/log/process-control" # job folders e.g. 
 CIVI_CURRENT_PROCESS_CONTROL_PATTERN="*-$CURRENT_DATE*.log"  # e.g. silverpop_daily-20200807-154459.log
 CIVI_CURRENT_PROCESS_CONTROL_GREP="$GREP"
 
-# this path holds soon-to-be-archived logs (previous day's only)
-CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1001/process-control/$PREVIOUSDAY"
+# this path holds soon-to-be-archived logs
+CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1001/process-control/$ARCHIVE_DATE"
 CIVI_CURRENTISH_PROCESS_CONTROL_PATTERN="*.bz2" # e.g. 20200805/thank_you_mail_send-20200805-235902.log.civi1001.bz2
 CIVI_CURRENTISH_PROCESS_CONTROL_GREP="$BZGREP"
 
@@ -164,7 +204,7 @@ function logdog() {
 }
 
 ### HOST-BASED SELECTIONS ###
-if [[ $HOSTNAME == "$CIVI1001" || $DEBUG == true ]]; then
+if [[ $HOSTNAME == "$CIVI1001" ]]; then
   PATHS=("$CIVI_CURRENT_PROCESS_CONTROL_PATH" "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH")
   PATTERNS=("$CIVI_CURRENT_PROCESS_CONTROL_PATTERN" "$CIVI_CURRENTISH_PROCESS_CONTROL_PATTERN")
   GREPPERS=("$CIVI_CURRENT_PROCESS_CONTROL_GREP" "$CIVI_CURRENTISH_PROCESS_CONTROL_GREP")
