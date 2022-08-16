@@ -60,7 +60,8 @@ BZCAT="/bin/bzcat"
 
 ### HOSTS ###
 CIVI1001="civi1001"
-FRLOG1001="frlog1001"
+### August 16, 2022, frlog1001 is deprecated, now use frlog1002 instead ###
+FRLOG1001="frlog1002"
 
 trap ctrl_c INT
 
