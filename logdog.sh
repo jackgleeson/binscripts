@@ -13,7 +13,7 @@
 # Logdog, an e-dog that sniffs through logs for interesting stuff. Woof!
 
 # ####
-# HOW TO USE (on civi1001 & frlog1002):
+# HOW TO USE (on civi1002 & frlog1002):
 : <<'STEPS'
 
  1) Add script to $HOME/bin dir:
@@ -59,7 +59,7 @@ ZCAT="/bin/zcat"
 BZCAT="/bin/bzcat"
 
 ### HOSTS ###
-CIVIHOST="civi1001"
+CIVIHOST="civi1002"
 FRLOGHOST="frlog1002"
 
 trap ctrl_c INT
@@ -166,7 +166,7 @@ FRLOG_1001_ARCHIVE_GREP="$ZGREP"
 
 # civi process-control logs are archived on frlog1002
 FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH="/srv/archive/civi/process-control/$ARCHIVE_DATE"
-FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATTERN="*.bz2" # e.g. 20200805/thank_you_mail_send-20200805-235902.log.civi1001.bz2
+FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATTERN="*.bz2" # e.g. 20200805/thank_you_mail_send-20200805-235902.log.civi1002.bz2
 FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_GREP="$BZGREP"
 
 ### CIVI PATHS, PATTERNS AND GREPPERS ###
@@ -175,8 +175,8 @@ CIVI_CURRENT_PROCESS_CONTROL_PATTERN="*-$CURRENT_DATE*.log"  # e.g. silverpop_da
 CIVI_CURRENT_PROCESS_CONTROL_GREP="$GREP"
 
 # this path holds soon-to-be-archived logs
-CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1001/process-control/$ARCHIVE_DATE/"
-CIVI_CURRENTISH_PROCESS_CONTROL_PATTERN="*.bz2" # e.g. 20200805/thank_you_mail_send-20200805-235902.log.civi1001.bz2
+CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1002/process-control/$ARCHIVE_DATE/"
+CIVI_CURRENTISH_PROCESS_CONTROL_PATTERN="*.bz2" # e.g. 20200805/thank_you_mail_send-20200805-235902.log.civi1002.bz2
 CIVI_CURRENTISH_PROCESS_CONTROL_GREP="$BZGREP"
 
 # CiviCRM ConfigAndLog logs
