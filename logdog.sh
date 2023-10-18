@@ -46,8 +46,8 @@ PATH="/usr/bin:$PATH"
 export PATH
 ### CONSTANTS ###
 OUTPUT_DIR="$HOME/logdog/"
-FIRST_MATCH=false
-INFO_FLAG=false
+FIRST_MATCH="false"
+INFO_FLAG="false"
 YELLOW="\e[93m"
 WHITE="\e[39m"
 BOLDB="\e[1m"
@@ -121,9 +121,9 @@ done
 
 while getopts "fid:o:h" opt; do
   case ${opt} in
-  f) FIRST_MATCH=true ;;
+  f) FIRST_MATCH="true" ;;
   d) DATE="$OPTARG" ;;
-  i) INFO_FLAG=true ;;
+  i) INFO_FLAG="true" ;;
   o) FOLDERNAME="$OPTARG" ;;
   h) display_help ;;
   \?)
@@ -212,7 +212,7 @@ else
   exit 1
 fi
 
-if $INFO_FLAG; then
+if [[ "$INFO_FLAG" == "true" ]]; then
   display_directories
   exit 0
 fi
@@ -246,7 +246,11 @@ function logdog() {
   echo -e "\e[93m# Sniffing $FILE_PATH for files matching '$FILENAME_PATTERN' containing '$QUERY'"
   TOTAL_COUNT=0
   for file in $FILES; do
-    RESULT=$("$GREPPER" -i ${FIRST_MATCH:+-m 1} "$QUERY" "$file")
+    if [[ "$FIRST_MATCH" == "true" ]]; then
+        RESULT=$("$GREPPER" -i -m 1 "$QUERY" "$file")
+    else
+        RESULT=$("$GREPPER" -i "$QUERY" "$file")
+    fi
     if [[ $? -eq 0 ]]; then
       COUNT=$(echo "$RESULT" | /usr/bin/wc -l)
       if [[ "$COUNT" -gt 0 ]]; then
