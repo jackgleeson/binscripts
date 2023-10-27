@@ -89,7 +89,7 @@ function display_help() {
     echo -e "  -i               Display the directories on the host it will search in"
     echo -e "  -h               Print this help"
     echo -e "\nFlags:"
-    echo -e "  --f              Limit results to the first hit for each file scanned"
+    echo -e "  --first          Limit results to the first hit for each file scanned"
     echo -e "\n===============================================\n"
     echo -e "Examples:\n"
     echo -e "  Quick Search:"
