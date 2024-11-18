@@ -46,7 +46,9 @@ PATH="/usr/bin:$PATH"
 export PATH
 ### CONSTANTS ###
 OUTPUT_DIR="$HOME/logdog/"
-FIRST_MATCH="false"
+SINGLE_RESULT="false"
+FILENAME_SEARCH="false"
+FILENAME_SEARCH_LIMIT=50
 INFO_FLAG="false"
 YELLOW="\e[93m"
 WHITE="\e[39m"
@@ -82,57 +84,69 @@ function display_directories() {
 function display_help() {
     echo -e "${WHITE}"
     echo -e "${BOLDB}Logdog helps you find stuff in the logs!${BOLDE}"
-    echo -e "\nSyntax: logdog [-d|o|i|h] query\n"
+    echo -e "\nSyntax: logdog [-d|o|i|h|f] query\n"
     echo -e "Options:"
     echo -e "  -d YYYYMMDD      Add a custom date filter when searching (defaults to yesterday's date)"
     echo -e "  -o folder_name   Write file hits to a custom folder name (defaults to query as folder name)"
     echo -e "  -i               Display the directories on the host it will search in"
+    echo -e "  -f, --file       Search for filenames instead of file contents"
     echo -e "  -h               Print this help"
     echo -e "\nFlags:"
     echo -e "  --first          Limit results to the first hit for each file scanned"
     echo -e "\n===============================================\n"
     echo -e "Examples:\n"
+    echo -e
+    echo -e " FILENAME SEARCHES:\n"
+    echo -e "  Search for files by name:"
+    echo -e "      ${BOLDB}logdog -f donations_queue_consume${BOLDE}"
+    echo -e "      Outputs a list of files matching 'donations_queue_consume'. Handy when wanting to file multiple similar files"
+    echo -e "      ${BOLDB}logdog -f 20241116${BOLDE}"
+    echo -e "      Outputs a list of files matching '20241116'. Handy when you want to find all log files written that day"
+    echo -e
+    echo -e " LOG CONTENTS SEARCHES:\n"
     echo -e "  Quick Search:"
-    echo -e "      ${BOLDB}logdog order_id_12345${BOLDE}"
+    echo -e "      ${BOLDB}logdog 'order_id_12345'${BOLDE}"
     echo -e "      Outputs results to $HOME/logdog/order_id_12345\n"
     echo -e "  Search and write results to a custom output directory:"
-    echo -e "      ${BOLDB}logdog -o my_search order_id_12345${BOLDE}"
+    echo -e "      ${BOLDB}logdog -o my_search 'order_id_12345'${BOLDE}"
     echo -e "      Outputs results to $HOME/logdog/my_search\n"
     echo -e "  Search on a specific date:"
-    echo -e "      ${BOLDB}logdog -d 20201201 order_id_12345${BOLDE}"
+    echo -e "      ${BOLDB}logdog -d 20201201 'order_id_12345'${BOLDE}"
     echo -e "      Outputs results to $HOME/logdog/order_id_12345\n"
     echo -e "  Search across multiple dates:"
-    echo -e "      ${BOLDB}logdog -d 202012 order_id_12345${BOLDE}"
+    echo -e "      ${BOLDB}logdog -d 202012 'order_id_12345'${BOLDE}"
     echo -e "      Outputs all results across December 2020 to $HOME/logdog/order_id_12345\n"
-    echo -e "      ${BOLDB}logdog -d 2020121[23] order_id_12345${BOLDE}"
+    echo -e "      ${BOLDB}logdog -d 2020121[23] 'order_id_12345'${BOLDE}"
     echo -e "      Outputs all results across December 12th and 13th to $HOME/logdog/order_id_12345\n"
     exit 0
 }
 
 
+
 ### ARGUMENTS ###
 for arg in "$@"; do
-  shift
-  case "$arg" in
-  "--first") set -- "$@" "-f" ;;
-  *) set -- "$@" "$arg" ;;
-  esac
+  if [[ "$arg" == "--first" ]]; then
+    SINGLE_RESULT="true"
+    # Remove --first from the arguments
+    set -- "${@/--first/}"
+  fi
 done
 
 while getopts "fid:o:h" opt; do
   case ${opt} in
-  f) FIRST_MATCH="true" ;;
+  f) FILENAME_SEARCH="true" ;;
   d) DATE="$OPTARG" ;;
   i) INFO_FLAG="true" ;;
   o) FOLDERNAME="$OPTARG" ;;
   h) display_help ;;
   \?)
     echo "Error: Invalid option"
-    exit
+    exit 1
     ;;
   esac
 done
 shift $((OPTIND - 1))
+
 
 ### DATE STUFF ###
 TODAY=$(date +"%Y%m%d")
@@ -173,7 +187,7 @@ FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_GREP="$BZGREP"
 
 ### CIVI PATHS, PATTERNS AND GREPPERS ###
 CIVI_CURRENT_PROCESS_CONTROL_PATH="/var/log/process-control/" # job folders e.g. silverpop_daily
-CIVI_CURRENT_PROCESS_CONTROL_PATTERN="*-$CURRENT_DATE*.log"   # e.g. silverpop_daily-20200807-154459.log
+CIVI_CURRENT_PROCESS_CONTROL_PATTERN="*.log"   # e.g. silverpop_daily-20200807-154459.log
 CIVI_CURRENT_PROCESS_CONTROL_GREP="$GREP"
 
 # this path holds soon-to-be-archived logs
@@ -188,7 +202,12 @@ CIVI_CONFIG_AND_LOG_GREP="$GREP"
 
 ### HOST-BASED SELECTIONS ###
 if [[ $HOSTNAME == "$CIVIHOST" ]]; then
-  if [[ -z "$DATE" ]]; then
+  if [[ "$FILENAME_SEARCH" == "true" ]]; then
+    # For filename search, remove date components from paths
+    PATHS=("$CIVI_CURRENT_PROCESS_CONTROL_PATH" "/srv/archive/civi1002/process-control/" "$CIVI_CONFIG_AND_LOG_PATH")
+    PATTERNS=("*" "*" "*")  # Search all files in these directories
+    GREPPERS=("" "" "")  # Not used in filename search
+  elif [[ -z "$DATE" ]]; then
     PATHS=("$CIVI_CURRENT_PROCESS_CONTROL_PATH" "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH" "$CIVI_CONFIG_AND_LOG_PATH")
     PATTERNS=("$CIVI_CURRENT_PROCESS_CONTROL_PATTERN" "$CIVI_CURRENTISH_PROCESS_CONTROL_PATTERN" "$CIVI_CONFIG_AND_LOG_PATTERN")
     GREPPERS=("$CIVI_CURRENT_PROCESS_CONTROL_GREP" "$CIVI_CURRENTISH_PROCESS_CONTROL_GREP" "$CIVI_CONFIG_AND_LOG_GREP")
@@ -198,7 +217,12 @@ if [[ $HOSTNAME == "$CIVIHOST" ]]; then
     GREPPERS=("$CIVI_CURRENTISH_PROCESS_CONTROL_GREP")
   fi
 elif [[ $HOSTNAME == "$FRLOGHOST" ]]; then
-  if [[ -z "$DATE" ]]; then
+  if [[ "$FILENAME_SEARCH" == "true" ]]; then
+    # For filename search, remove date components from paths
+    PATHS=("$FRLOG_CURRENT_PATH" "/srv/archive/frlog1002/logs" "/srv/archive/civi/process-control/")
+    PATTERNS=("*" "*" "*")  # Search all files in these directories
+    GREPPERS=("" "" "")  # Not used in filename search
+  elif [[ -z "$DATE" ]]; then
     PATHS=("$FRLOG_CURRENT_PATH" "$FRLOG_ARCHIVE_PATH_TODAY" "$FRLOG_ARCHIVE_PATH_OTHER" "$FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH")
     PATTERNS=("$FRLOG_CURRENT_PATTERN" "$FRLOG_ARCHIVE_PATTERN_TODAY" "$FRLOG_ARCHIVE_PATTERN_OTHER" "$FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATTERN")
     GREPPERS=("$FRLOG_CURRENT_GREP" "$FRLOG_ARCHIVE_GREP_TODAY" "$FRLOG_ARCHIVE_GREP_OTHER" "$FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_GREP")
@@ -241,33 +265,56 @@ function logdog() {
   local GREPPER=$3
   local QUERY=$4
   local GREPCOLOUR='--color=always'
-  FILES=$(/usr/bin/find $FILE_PATH -name "$FILENAME_PATTERN" -type f 2>/dev/null)
-  echo -e "$YELLOW ##################################################################"
-  echo -e "\e[93m# Sniffing $FILE_PATH for files matching '$FILENAME_PATTERN' containing '$QUERY'"
-  TOTAL_COUNT=0
-  for file in $FILES; do
-    if [[ "$FIRST_MATCH" == "true" ]]; then
-        RESULT=$("$GREPPER" -i -m 1 "$QUERY" "$file")
+
+  if [[ "$FILENAME_SEARCH" == "true" ]]; then
+    # Filename search mode
+    echo -e "$YELLOW ##################################################################"
+    echo -e "\e[93m# Searching for files in $FILE_PATH matching '*$QUERY*'"
+
+    # Get the total count of matching files
+    TOTAL_MATCHING_FILES=$(/usr/bin/find "$FILE_PATH" -type f -name "*$QUERY*" 2>/dev/null | wc -l)
+
+    # Limit the search to FILENAME_SEARCH_LIMIT files
+    MATCHING_FILES=$(/usr/bin/find "$FILE_PATH" -type f -name "*$QUERY*" 2>/dev/null | head -n "$FILENAME_SEARCH_LIMIT")
+
+    if [[ -n "$MATCHING_FILES" ]]; then
+      echo -e "$YELLOW# Found $TOTAL_MATCHING_FILES files (limited to $FILENAME_SEARCH_LIMIT):"
+      echo "$MATCHING_FILES"
     else
-        RESULT=$("$GREPPER" -i "$QUERY" "$file")
+      echo -e "$YELLOW# No files matching '*$QUERY*' found in $FILE_PATH"
     fi
-    if [[ $? -eq 0 ]]; then
-      COUNT=$(echo "$RESULT" | /usr/bin/wc -l)
-      if [[ "$COUNT" -gt 0 ]]; then
-        echo -e "\n"
-        echo -e "$YELLOW# $file hits: $COUNT"
-        /bin/mkdir -p "$OUTPUT_FOLDER"
-        echo "$RESULT" >"$OUTPUT_FOLDER""/""${file##*/}"".txt"
-        echo -e "$YELLOW# Results written to $OUTPUT_FOLDER${file##*/}.txt"
-        echo -e "$WHITE$(echo "$RESULT" | "$GREP" -i "$GREPCOLOUR" "$QUERY")"
-        TOTAL_COUNT=$((TOTAL_COUNT + COUNT))
+    echo -e "$YELLOW------------------------------------------------------------------"
+    echo -e "$WHITE"
+  else
+    # Log contents search mode
+    FILES=$(/usr/bin/find "$FILE_PATH" -name "$FILENAME_PATTERN" -type f 2>/dev/null)
+    echo -e "$YELLOW ##################################################################"
+    echo -e "\e[93m# Sniffing $FILE_PATH for files matching '$FILENAME_PATTERN' containing '$QUERY'"
+    TOTAL_COUNT=0
+    for file in $FILES; do
+      if [[ "$SINGLE_RESULT" == "true" ]]; then
+          RESULT=$("$GREPPER" -i -m 1 "$QUERY" "$file")
+      else
+          RESULT=$("$GREPPER" -i "$QUERY" "$file")
       fi
-    fi
-  done
-  echo -e "\n"
-  echo -e "$YELLOW# Total hits in $FILE_PATH: $TOTAL_COUNT"
-  echo -e "$YELLOW------------------------------------------------------------------"
-  echo -e "$WHITE"
+      if [[ $? -eq 0 ]]; then
+        COUNT=$(echo "$RESULT" | /usr/bin/wc -l)
+        if [[ "$COUNT" -gt 0 ]]; then
+          echo -e "\n"
+          echo -e "$YELLOW# $file hits: $COUNT"
+          /bin/mkdir -p "$OUTPUT_FOLDER"
+          echo "$RESULT" >"$OUTPUT_FOLDER""/""${file##*/}"".txt"
+          echo -e "$YELLOW# Results written to $OUTPUT_FOLDER${file##*/}.txt"
+          echo -e "$WHITE$(echo "$RESULT" | "$GREP" -i "$GREPCOLOUR" "$QUERY")"
+          TOTAL_COUNT=$((TOTAL_COUNT + COUNT))
+        fi
+      fi
+    done
+    echo -e "\n"
+    echo -e "$YELLOW# Total hits in $FILE_PATH: $TOTAL_COUNT"
+    echo -e "$YELLOW------------------------------------------------------------------"
+    echo -e "$WHITE"
+  fi
 }
 
 ### MAIN ###
