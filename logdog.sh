@@ -36,14 +36,6 @@ function ctrl_c() {
   exit
 }
 
-function display_directories() {
-  echo "Directories that will be searched on $HOSTNAME:"
-  echo
-  for path in "${PATHS[@]}"; do
-    echo "- $path"
-  done
-}
-
 function display_help() {
   echo -e "${WHITE}"
   echo -e "${BOLDB}Logdog helps you find stuff in the logs!${BOLDE}"
@@ -113,15 +105,6 @@ while getopts ":fid:o:h" opt; do
 done
 shift $((OPTIND - 1))
 
-# Output folder setup
-if [[ -z "$FOLDERNAME" ]]; then
-  FOLDERNAME=$(echo "$QUERY" | sed 's/ *$//g; s/ /_/g; s/\//__/g')
-  OUTPUT_FOLDER="$OUTPUT_DIR$FOLDERNAME/"
-else
-  FOLDERNAME=$(echo "$FOLDERNAME" | sed 's/ *$//g; s/ /_/g')
-  OUTPUT_FOLDER="$OUTPUT_DIR$FOLDERNAME/"
-fi
-
 ### Date Stuff ###
 TODAY=$(date +"%Y%m%d")
 PREVIOUSDAY=$(date +"%Y%m%d" -d "yesterday")
@@ -136,18 +119,6 @@ else
   CURRENT_DATE=$TODAY
   ARCHIVE_DATE=$DATE
 fi
-
-### PATH AND PATTERN CONFIGURATION ###
-function configure_paths() {
-  if [[ "$HOSTNAME" == "$CIVIHOST" ]]; then
-    configure_civi_paths
-  elif [[ "$HOSTNAME" == "$FRLOGHOST" ]]; then
-    configure_frlog_paths
-  else
-    echo "Running logdog on an invalid host!"
-    exit 1
-  fi
-}
 
 function configure_civi_paths() {
   # Common paths for civi
@@ -164,48 +135,108 @@ function configure_civi_paths() {
     )
     PATTERNS=("*" "*" "*")
   else
-    # Paths for content search
-    PATHS=(
-      "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
-      "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
-      "$CIVI_CONFIG_AND_LOG_PATH"
-    )
-    PATTERNS=("*.log" "*.bz2" "CiviCRM*.log*")
-    GREPPERS=("$GREP" "$BZGREP" "$GREP")
+    if [[ -z "$DATE" ]]; then
+      # No date specified; search current logs and today's archives
+      PATHS=(
+        "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
+        "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
+        "$CIVI_CONFIG_AND_LOG_PATH"
+      )
+      PATTERNS=(
+        "*.log"
+        "*.bz2"
+        "CiviCRM*.log*"
+      )
+      GREPPERS=(
+        "$GREP"
+        "$BZGREP"
+        "$GREP"
+      )
+    else
+      # Date specified; search only archives matching the date
+      PATHS=(
+        "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
+        "$CIVI_CONFIG_AND_LOG_PATH"
+      )
+      PATTERNS=(
+        "*.bz2"
+        "CiviCRM*.log*"
+      )
+      GREPPERS=(
+        "$BZGREP"
+        "$GREP"
+      )
+    fi
   fi
 }
 
 function configure_frlog_paths() {
   # Common paths for frlog
   FRLOG_CURRENT_PATH="/var/log/remote/"
-  FRLOG_ARCHIVE_PATH_TODAY="/srv/archive/frlog1002/logs"
-  FRLOG_ARCHIVE_PATH_OTHER="/srv/archive/frlog1002/logs"
+  FRLOG_ARCHIVE_PATH="/srv/archive/frlog1002/logs"
   FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH="/srv/archive/civi/process-control/$ARCHIVE_DATE"
 
   if [[ "$FILENAME_SEARCH" == "true" ]]; then
     # Paths for filename search
     PATHS=(
       "$FRLOG_CURRENT_PATH"
-      "/srv/archive/frlog1002/logs"
+      "$FRLOG_ARCHIVE_PATH"
       "/srv/archive/civi/process-control/"
     )
     PATTERNS=("*" "*" "*")
   else
-    # Paths for content search
-    PATHS=(
-      "$FRLOG_CURRENT_PATH"
-      "$FRLOG_ARCHIVE_PATH_TODAY"
-      "$FRLOG_ARCHIVE_PATH_OTHER"
-      "$FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH"
-    )
-    PATTERNS=(
-      "*"
-      "*-$CURRENT_DATE.gz"
-      "*-$ARCHIVE_DATE.gz"
-      "*.bz2"
-    )
-    GREPPERS=("$GREP" "$ZGREP" "$ZGREP" "$BZGREP")
+    if [[ -z "$DATE" ]]; then
+      # No date specified; search current logs and today's archives
+      PATHS=(
+        "$FRLOG_CURRENT_PATH"
+        "$FRLOG_ARCHIVE_PATH"
+        "$FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH"
+      )
+      PATTERNS=(
+        "*"
+        "*-$CURRENT_DATE.gz"
+        "*.bz2"
+      )
+      GREPPERS=(
+        "$GREP"
+        "$ZGREP"
+        "$BZGREP"
+      )
+    else
+      # Date specified; search only archives matching the date
+      PATHS=(
+        "$FRLOG_ARCHIVE_PATH"
+        "$FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH"
+      )
+      PATTERNS=(
+        "*-$ARCHIVE_DATE.gz"
+        "*.bz2"
+      )
+      GREPPERS=(
+        "$ZGREP"
+        "$BZGREP"
+      )
+    fi
   fi
+}
+
+function configure_paths() {
+  if [[ "$HOSTNAME" == "$CIVIHOST" ]]; then
+    configure_civi_paths
+  elif [[ "$HOSTNAME" == "$FRLOGHOST" ]]; then
+    configure_frlog_paths
+  else
+    echo "Running logdog on an invalid host!"
+    exit 1
+  fi
+}
+
+function display_directories() {
+  echo "Directories that will be searched on $HOSTNAME:"
+  echo
+  for path in "${PATHS[@]}"; do
+    echo "- $path"
+  done
 }
 
 configure_paths
@@ -222,7 +253,14 @@ else
   QUERY="$1"
 fi
 
-### SEARCH FUNCTIONS ###
+if [[ -z "$FOLDERNAME" ]]; then
+  FOLDERNAME=$(echo "$QUERY" | sed 's/ *$//g; s/ /_/g; s/\//__/g')
+  OUTPUT_FOLDER="$OUTPUT_DIR$FOLDERNAME/"
+else
+  FOLDERNAME=$(echo "$FOLDERNAME" | sed 's/ *$//g; s/ /_/g')
+  OUTPUT_FOLDER="$OUTPUT_DIR$FOLDERNAME/"
+fi
+
 function filename_search() {
   local file_path=$1
   local query=$2
@@ -283,7 +321,7 @@ function content_search() {
   echo -e "$WHITE"
 }
 
-### MAIN EXECUTION ###
+### MAIN ###
 for index in "${!PATHS[@]}"; do
   if [[ "$FILENAME_SEARCH" == "true" ]]; then
     filename_search "${PATHS[index]}" "$QUERY"
