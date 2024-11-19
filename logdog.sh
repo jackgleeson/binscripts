@@ -11,6 +11,7 @@
 #                 '---`|I|`---'
 #                      '-'
 # Logdog, an e-dog that sniffs through logs on civi1002 & frlog1002 for interesting stuff. Woof!
+
 START_TIME=$(date +%s)
 
 PATH="/usr/bin:$PATH"
@@ -43,18 +44,22 @@ function ctrl_c() {
 function display_help() {
   echo -e "${RESET}"
   echo -e "${BOLDB}Logdog helps you find stuff in the logs!${BOLDE}"
-  echo -e "\nSyntax: logdog [options] query\n"
-  echo -e "Options:"
+  echo -e "\nSyntax:"
+  echo -e "  logdog [options] query"
+  echo -e "  logdog -f filename"
+  echo -e "  logdog -f filename [filtered_query]"
+  echo -e "\nOptions:"
   echo -e "  -d YYYYMMDD      Add a custom date filter when searching (defaults to yesterday's date)"
   echo -e "  -o folder_name   Write file hits to a custom folder name (defaults to query as folder name)"
   echo -e "  -i               Display the directories on the host it will search in"
-  echo -e "  -f, --file       Search for filenames instead of file contents"
+  echo -e "  -f, --file       Search for filenames instead of file contents. If a second argument is provided, it is used as a filtered query within the matched files."
   echo -e "  -h               Print this help"
   echo -e "\nFlags:"
   echo -e "  --first          Limit results to the first hit for each file scanned"
   echo -e "\nExamples:"
-  echo -e "  logdog -f donations_queue_consume"
-  echo -e "  logdog 'order_id_12345'"
+  echo -e "  logdog order_id_12345"
+  echo -e "  logdog -f payments-paypal"
+  echo -e "  logdog -f payments-paypal-202411 paypal_order_id_sometime_in_november"
   exit 0
 }
 
@@ -108,6 +113,25 @@ while getopts ":fid:o:h" opt; do
   esac
 done
 shift $((OPTIND - 1))
+
+if [[ "$FILENAME_SEARCH" == "true" ]]; then
+  if [[ $# -eq 0 ]]; then
+    echo "Enter a filename query to search!"
+    exit 1
+  elif [[ $# -eq 1 ]]; then
+    QUERY="$1"
+  else
+    QUERY="$1"
+    CONTENT_QUERY="$2"
+  fi
+else
+  if [[ $# -eq 0 ]]; then
+    echo "Enter a search query to fetch!"
+    exit 1
+  else
+    QUERY="$1"
+  fi
+fi
 
 ### Date Stuff ###
 TODAY=$(date +"%Y%m%d")
@@ -250,13 +274,6 @@ if [[ "$INFO_FLAG" == "true" ]]; then
   exit 0
 fi
 
-if [[ -z "$1" ]]; then
-  echo "Enter a search query to fetch!"
-  exit 1
-else
-  QUERY="$1"
-fi
-
 if [[ -z "$FOLDERNAME" ]]; then
   FOLDERNAME=$(echo "$QUERY" | sed 's/ *$//g; s/ /_/g; s/\//__/g')
   OUTPUT_FOLDER="$OUTPUT_DIR$FOLDERNAME/"
@@ -270,26 +287,60 @@ function filename_search() {
   local query=$2
 
   echo -e "$YELLOW ##################################################################"
-  echo -e "\e[93m# Searching for files in $file_path matching '*$query*'"
+  echo -e "${YELLOW}# Searching for files in $file_path matching '*$query*'${RESET}"
 
   local total_matching_files
   total_matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" 2>/dev/null | wc -l)
 
-  local matching_files
-  # matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" 2>/dev/null | head -n "$FILENAME_SEARCH_LIMIT")
-  # NOTE: we replaced the above with a default sort of newest first which added a big performance drop. However, it does seems useful
-  # so let's leave it in unless it becomes a pain and we can take it out.
-  matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" -printf '%T@ %p\n' 2>/dev/null | sort -nr | cut -d' ' -f2- | head -n "$FILENAME_SEARCH_LIMIT")
+  local matching_files_list
+  matching_files_list=$(/usr/bin/find "$file_path" -type f -name "*$query*" -printf '%T@ %p\n' 2>/dev/null | LC_ALL=C sort -nr -k1,1 | awk '{for(i=2;i<=NF;++i)printf "%s%s",$i,(i==NF?ORS:OFS)}' | head -n "$FILENAME_SEARCH_LIMIT")
 
-
-  if [[ -n "$matching_files" ]]; then
-    echo -e "$YELLOW# Found $total_matching_files files (limited to $FILENAME_SEARCH_LIMIT):"
-    echo "$matching_files"
+  if [[ -n "$matching_files_list" ]]; then
+    echo -e "${YELLOW}# Found $total_matching_files files (limited to $FILENAME_SEARCH_LIMIT):${RESET}"
+    echo "$matching_files_list"
+    # Read matching files into an array
+    mapfile -t matching_files <<< "$matching_files_list"
   else
-    echo -e "$YELLOW# No files matching '*$query*' found in $file_path"
+    echo -e "${YELLOW}# No files matching '*$query*' found in $file_path${RESET}"
+    return 0
   fi
-  echo -e "$YELLOW------------------------------------------------------------------"
-  echo -e "$RESET"
+  echo -e "${YELLOW}------------------------------------------------------------------${RESET}"
+
+  # If an additional content search query is provided, search within the matched files
+  if [[ -n "$CONTENT_QUERY" ]]; then
+    echo -e "${YELLOW}# Searching within matched files for query matching '$CONTENT_QUERY'${RESET}"
+    local total_count=0
+    for file in "${matching_files[@]}"; do
+      local result
+      # Choose the appropriate grepper based on file extension
+      if [[ "$file" == *.gz ]]; then
+        GREPPER="$ZGREP"
+      elif [[ "$file" == *.bz2 ]]; then
+        GREPPER="$BZGREP"
+      else
+        GREPPER="$GREP"
+      fi
+
+      if [[ "$SINGLE_RESULT" == "true" ]]; then
+        result=$("$GREPPER" -i -m 1 "$CONTENT_QUERY" "$file")
+      else
+        result=$("$GREPPER" -i "$CONTENT_QUERY" "$file")
+      fi
+
+      if [[ $? -eq 0 && -n "$result" ]]; then
+        local count
+        count=$(echo "$result" | wc -l)
+        echo -e "\n${YELLOW}# $file hits: $count${RESET}"
+        /bin/mkdir -p "$OUTPUT_FOLDER"
+        echo "$result" >"$OUTPUT_FOLDER""${file##*/}.txt"
+        echo -e "${YELLOW}# Results written to $OUTPUT_FOLDER${file##*/}.txt${RESET}"
+        echo -e "${RESET}$(echo "$result" | "$GREP" -i --color=always "$CONTENT_QUERY")"
+        total_count=$((total_count + count))
+      fi
+    done
+    echo -e "\n${YELLOW}# Total hits in matched files: $total_count${RESET}"
+    echo -e "${YELLOW}------------------------------------------------------------------${RESET}"
+  fi
 }
 
 function content_search() {
@@ -299,7 +350,7 @@ function content_search() {
   local query=$4
 
   echo -e "$YELLOW ##################################################################"
-  echo -e "\e[93m# Searching in $file_path for files matching '$filename_pattern' containing '$query'"
+  echo -e "${YELLOW}# Searching in $file_path for files matching '$filename_pattern' containing '$query'${RESET}"
 
   local files
   files=$(/usr/bin/find "$file_path" -name "$filename_pattern" -type f 2>/dev/null)
@@ -316,17 +367,16 @@ function content_search() {
     if [[ $? -eq 0 && -n "$result" ]]; then
       local count
       count=$(echo "$result" | wc -l)
-      echo -e "\n$YELLOW# $file hits: $count"
+      echo -e "\n${YELLOW}# $file hits: $count${RESET}"
       /bin/mkdir -p "$OUTPUT_FOLDER"
       echo "$result" >"$OUTPUT_FOLDER""${file##*/}.txt"
-      echo -e "$YELLOW# Results written to $OUTPUT_FOLDER${file##*/}.txt"
-      echo -e "$RESET$(echo "$result" | "$GREP" -i --color=always "$query")"
+      echo -e "${YELLOW}# Results written to $OUTPUT_FOLDER${file##*/}.txt${RESET}"
+      echo -e "${RESET}$(echo "$result" | "$GREP" -i --color=always "$query")"
       total_count=$((total_count + count))
     fi
   done
-  echo -e "\n$YELLOW# Total hits in $file_path: $total_count"
-  echo -e "$YELLOW------------------------------------------------------------------"
-  echo -e "$RESET"
+  echo -e "\n${YELLOW}# Total hits in $file_path: $total_count${RESET}"
+  echo -e "${YELLOW}------------------------------------------------------------------${RESET}"
 }
 
 ### MAIN ###
