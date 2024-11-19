@@ -296,7 +296,7 @@ function filename_search() {
   # NOTE: we replaced the above with a default sort of newest first which added a big performance drop. However, it does seems useful
   # so let's leave it in unless it becomes a pain and we can take it out.
   local matching_files_list
-  matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" -printf '%T@ %p\n' 2>/dev/null | sort -nr | cut -d' ' -f2- | head -n "$FILENAME_SEARCH_LIMIT")
+  matching_files_list=$(/usr/bin/find "$file_path" -type f -name "*$query*" -printf '%T@ %p\n' 2>/dev/null | sort -nr | cut -d' ' -f2- | head -n "$FILENAME_SEARCH_LIMIT")
 
   if [[ -n "$matching_files_list" ]]; then
     echo -e "${YELLOW}# Found $total_matching_files files (limited to $FILENAME_SEARCH_LIMIT):${RESET}"
