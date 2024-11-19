@@ -11,6 +11,7 @@
 #                 '---`|I|`---'
 #                      '-'
 # Logdog, an e-dog that sniffs through logs on civi1002 & frlog1002 for interesting stuff. Woof!
+START_TIME=$(date +%s)
 
 PATH="/usr/bin:$PATH"
 export PATH
@@ -19,7 +20,7 @@ export PATH
 OUTPUT_DIR="$HOME/logdog/"
 FILENAME_SEARCH_LIMIT=50
 YELLOW="\e[93m"
-WHITE="\e[39m"
+RESET="\e[0m"
 BOLDB="\e[1m"
 BOLDE="\e[0m"
 GREP="/bin/grep"
@@ -30,14 +31,17 @@ BZGREP="/bin/bzgrep"
 CIVIHOST="civi1002"
 FRLOGHOST="frlog1002"
 
+# Added to reset terminal on script exit
+trap 'tput sgr0' EXIT
 trap ctrl_c INT
+
 function ctrl_c() {
   tput sgr0
   exit
 }
 
 function display_help() {
-  echo -e "${WHITE}"
+  echo -e "${RESET}"
   echo -e "${BOLDB}Logdog helps you find stuff in the logs!${BOLDE}"
   echo -e "\nSyntax: logdog [options] query\n"
   echo -e "Options:"
@@ -272,7 +276,11 @@ function filename_search() {
   total_matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" 2>/dev/null | wc -l)
 
   local matching_files
-  matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" 2>/dev/null | head -n "$FILENAME_SEARCH_LIMIT")
+  # matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" 2>/dev/null | head -n "$FILENAME_SEARCH_LIMIT")
+  # NOTE: we replaced the above with a default sort of newest first which added a big performance drop. However, it does seems useful
+  # so let's leave it in unless it becomes a pain and we can take it out.
+  matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" -printf '%T@ %p\n' 2>/dev/null | sort -nr | cut -d' ' -f2- | head -n "$FILENAME_SEARCH_LIMIT")
+
 
   if [[ -n "$matching_files" ]]; then
     echo -e "$YELLOW# Found $total_matching_files files (limited to $FILENAME_SEARCH_LIMIT):"
@@ -281,7 +289,7 @@ function filename_search() {
     echo -e "$YELLOW# No files matching '*$query*' found in $file_path"
   fi
   echo -e "$YELLOW------------------------------------------------------------------"
-  echo -e "$WHITE"
+  echo -e "$RESET"
 }
 
 function content_search() {
@@ -312,13 +320,13 @@ function content_search() {
       /bin/mkdir -p "$OUTPUT_FOLDER"
       echo "$result" >"$OUTPUT_FOLDER""${file##*/}.txt"
       echo -e "$YELLOW# Results written to $OUTPUT_FOLDER${file##*/}.txt"
-      echo -e "$WHITE$(echo "$result" | "$GREP" -i --color=always "$query")"
+      echo -e "$RESET$(echo "$result" | "$GREP" -i --color=always "$query")"
       total_count=$((total_count + count))
     fi
   done
   echo -e "\n$YELLOW# Total hits in $file_path: $total_count"
   echo -e "$YELLOW------------------------------------------------------------------"
-  echo -e "$WHITE"
+  echo -e "$RESET"
 }
 
 ### MAIN ###
@@ -329,3 +337,8 @@ for index in "${!PATHS[@]}"; do
     content_search "${PATHS[index]}" "${PATTERNS[index]}" "${GREPPERS[index]}" "$QUERY"
   fi
 done
+
+END_TIME=$(date +%s)
+ELAPSED_TIME=$((END_TIME - START_TIME))
+echo -e "\n$YELLOW# Total execution time: ${ELAPSED_TIME} seconds"
+echo -e "$RESET"
