@@ -115,7 +115,7 @@ done
 shift $((OPTIND - 1))
 
 if [[ "$FILENAME_SEARCH" == "true" ]]; then
-  if [[ $# -eq 0 ]]; then
+  if [[ $# -eq 0 && "$INFO_FLAG" != "true" ]]; then
     echo "Enter a filename query to search!"
     exit 1
   elif [[ $# -eq 1 ]]; then
@@ -125,7 +125,7 @@ if [[ "$FILENAME_SEARCH" == "true" ]]; then
     CONTENT_QUERY="$2"
   fi
 else
-  if [[ $# -eq 0 ]]; then
+  if [[ $# -eq 0 && "$INFO_FLAG" != "true" ]]; then
     echo "Enter a search query to fetch!"
     exit 1
   else
@@ -150,49 +150,58 @@ fi
 
 function configure_civi_paths() {
   # Common paths for civi
-  CIVI_CURRENT_PROCESS_CONTROL_PATH="/var/log/process-control/"
-  CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1002/process-control/$ARCHIVE_DATE/"
-  CIVI_CONFIG_AND_LOG_PATH="/srv/org.wikimedia.civicrm-files/civicrm/ConfigAndLog/"
+  CIVI_LOG_PATH="/srv/org.wikimedia.civicrm/private/log"
+  CIVI_CURRENT_PROCESS_CONTROL_PATH="/var/log/process-control"
+  CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1002/process-control/$ARCHIVE_DATE"
+  FRLOG_ARCHIVE_PATH="/srv/archive/frlog/logs"
+
 
   if [[ "$FILENAME_SEARCH" == "true" ]]; then
     # Paths for filename search
     PATHS=(
+      "$CIVI_LOG_PATH"
       "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
       "/srv/archive/civi1002/process-control/"
-      "$CIVI_CONFIG_AND_LOG_PATH"
+      "$FRLOG_ARCHIVE_PATH"
     )
-    PATTERNS=("*" "*" "*")
+    PATTERNS=("*" "*" "*" "*")
   else
     if [[ -z "$DATE" ]]; then
       # No date specified; search current logs and today's archives
       PATHS=(
+        "$CIVI_LOG_PATH"
         "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
         "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
-        "$CIVI_CONFIG_AND_LOG_PATH"
+        "$FRLOG_ARCHIVE_PATH"
       )
       PATTERNS=(
+        "CiviCRM*.log*"
         "*.log"
         "*.bz2"
-        "CiviCRM*.log*"
+        "*-$CURRENT_DATE.gz"
       )
       GREPPERS=(
         "$GREP"
         "$BZGREP"
         "$GREP"
+        "$ZGREP"
       )
     else
       # Date specified; search only archives matching the date
       PATHS=(
+        "$CIVI_LOG_PATH"
         "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
-        "$CIVI_CONFIG_AND_LOG_PATH"
+        "$FRLOG_ARCHIVE_PATH"
       )
       PATTERNS=(
-        "*.bz2"
         "CiviCRM*.log*"
+        "*.bz2"
+        "*-$CURRENT_DATE.gz"
       )
       GREPPERS=(
         "$BZGREP"
         "$GREP"
+        "$ZGREP"
       )
     fi
   fi
@@ -200,7 +209,7 @@ function configure_civi_paths() {
 
 function configure_frlog_paths() {
   # Common paths for frlog
-  FRLOG_CURRENT_PATH="/var/log/remote/"
+  FRLOG_CURRENT_PATH="/var/log/remote"
   FRLOG_ARCHIVE_PATH="/srv/archive/frlog1002/logs"
   FRLOG_CIVI_PROCESS_CONTROL_ARCHIVE_PATH="/srv/archive/civi/process-control/$ARCHIVE_DATE"
 
@@ -282,6 +291,27 @@ else
   OUTPUT_FOLDER="$OUTPUT_DIR$FOLDERNAME/"
 fi
 
+# Progress counter function
+# Usage: show_progress <current> <total> [message]
+function show_progress() {
+  local current=$1
+  local total=$2
+  local message=${3:-"Processing"}
+
+  if [[ $total -eq 0 ]]; then
+    echo -ne "\r${YELLOW}# $message: No items to process${RESET}"
+    return 0
+  fi
+
+  local percent=$((current * 100 / total))
+  echo -ne "\r${YELLOW}# $message: ${percent}% ($current/$total)${RESET}"
+
+  # Add newline when complete
+  if [[ $current -eq $total ]]; then
+    echo
+  fi
+}
+
 function filename_search() {
   local file_path=$1
   local query=$2
@@ -289,20 +319,21 @@ function filename_search() {
   echo -e "$YELLOW ##################################################################"
   echo -e "${YELLOW}# Searching for files in $file_path matching '*$query*'${RESET}"
 
-  local total_matching_files
-  total_matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" 2>/dev/null | wc -l)
-
-  # matching_files=$(/usr/bin/find "$file_path" -type f -name "*$query*" 2>/dev/null | head -n "$FILENAME_SEARCH_LIMIT")
-  # NOTE: we replaced the above with a default sort of newest first which added a big performance drop. However, it does seems useful
-  # so let's leave it in unless it becomes a pain and we can take it out.
+  local matching_files=()
   local matching_files_list
-  matching_files_list=$(/usr/bin/find "$file_path" -type f -name "*$query*" -printf '%T@ %p\n' 2>/dev/null | sort -nr | cut -d' ' -f2- | head -n "$FILENAME_SEARCH_LIMIT")
+
+  matching_files_list=$(ls -1 "$file_path" 2>/dev/null | grep "$query" | head -n "$FILENAME_SEARCH_LIMIT")
+  local total_matching_files
+  total_matching_files=$(ls -1 "$file_path" 2>/dev/null | grep "$query" | wc -l)
 
   if [[ -n "$matching_files_list" ]]; then
     echo -e "${YELLOW}# Found $total_matching_files files (limited to $FILENAME_SEARCH_LIMIT):${RESET}"
     echo "$matching_files_list"
-    # Read matching files into an array
-    mapfile -t matching_files <<< "$matching_files_list"
+
+    # Build the array of full paths
+    while IFS= read -r filename; do
+      matching_files+=("$file_path/${filename}")
+    done <<< "$matching_files_list"
   else
     echo -e "${YELLOW}# No files matching '*$query*' found in $file_path${RESET}"
     return 0
@@ -356,10 +387,20 @@ function content_search() {
   echo -e "${YELLOW}# Searching in $file_path for files matching '$filename_pattern' containing '$query'${RESET}"
 
   local files
-  files=$(/usr/bin/find "$file_path" -name "$filename_pattern" -type f 2>/dev/null)
+  files=$(cd "$file_path" && find . -name "$filename_pattern" -type f 2>/dev/null | sed "s|^\./|$file_path/|")
 
+  local file_count=0
+  local total_files=$(cd "$file_path" && find . -name "$filename_pattern" -type f 2>/dev/null | wc -l)
   local total_count=0
+
+  if [[ $total_files -eq 0 ]]; then
+    echo -e "${YELLOW}# No files found matching '$filename_pattern' in $file_path${RESET}"
+    return 0
+  fi
+
   for file in $files; do
+    file_count=$((file_count + 1))
+    show_progress $file_count $total_files "Scanning files"
     local result
     if [[ "$SINGLE_RESULT" == "true" ]]; then
       result=$("$grepper" -i -m 1 "$query" "$file")
