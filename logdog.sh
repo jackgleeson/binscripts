@@ -154,7 +154,7 @@ function configure_civi_paths() {
   CIVI_CURRENT_PROCESS_CONTROL_PATH="/var/log/process-control"
   CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1002/process-control/$ARCHIVE_DATE"
   FRLOG_ARCHIVE_PATH="/srv/archive/frlog/logs"
-
+  VAR_LOG_PATH="/var/log"
 
   if [[ "$FILENAME_SEARCH" == "true" ]]; then
     # Paths for filename search
@@ -163,8 +163,9 @@ function configure_civi_paths() {
       "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
       "/srv/archive/civi1002/process-control/"
       "$FRLOG_ARCHIVE_PATH"
+      "$VAR_LOG_PATH"
     )
-    PATTERNS=("*" "*" "*" "*")
+    PATTERNS=("*" "*" "*" "*" "*syslog*")
   else
     if [[ -z "$DATE" ]]; then
       # No date specified; search current logs and today's archives
@@ -173,12 +174,16 @@ function configure_civi_paths() {
         "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
         "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
         "$FRLOG_ARCHIVE_PATH"
+        "$VAR_LOG_PATH"
       )
       PATTERNS=(
         "CiviCRM*.log*"
         "*.log"
         "*.bz2"
         "*-$CURRENT_DATE.gz"
+        "syslog"
+        "syslog.[0-9]" 
+        "syslog.[0-9]*.gz"
       )
       GREPPERS=(
         "$GREP"
@@ -192,11 +197,13 @@ function configure_civi_paths() {
         "$CIVI_LOG_PATH"
         "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
         "$FRLOG_ARCHIVE_PATH"
+        "$VAR_LOG_PATH"
       )
       PATTERNS=(
         "CiviCRM*.log*"
         "*.bz2"
         "*-$CURRENT_DATE.gz"
+        "syslog*"
       )
       GREPPERS=(
         "$BZGREP"
