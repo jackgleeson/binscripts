@@ -153,6 +153,7 @@ function configure_civi_paths() {
   CIVI_LOG_PATH="/srv/org.wikimedia.civicrm/private/log"
   CIVI_CURRENT_PROCESS_CONTROL_PATH="/var/log/process-control"
   CIVI_CURRENTISH_PROCESS_CONTROL_PATH="/srv/archive/civi1002/process-control/$ARCHIVE_DATE"
+  CIVI_SYSLOG_PATH="/var/log/syslog"
   FRLOG_ARCHIVE_PATH="/srv/archive/frlog/logs"
 
 
@@ -173,18 +174,21 @@ function configure_civi_paths() {
         "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
         "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
         "$FRLOG_ARCHIVE_PATH"
+        "$CIVI_SYSLOG_PATH"
       )
       PATTERNS=(
         "CiviCRM*.log*"
         "*.log"
         "*.bz2"
         "*-$CURRENT_DATE.gz"
+        "syslog"
       )
       GREPPERS=(
         "$GREP"
         "$BZGREP"
         "$GREP"
         "$ZGREP"
+        "$GREP"
       )
     else
       # Date specified; search only archives matching the date
@@ -387,10 +391,11 @@ function content_search() {
   echo -e "${YELLOW}# Searching in $file_path for files matching '$filename_pattern' containing '$query'${RESET}"
 
   local files
-  files=$(cd "$file_path" && find . -name "$filename_pattern" -type f 2>/dev/null | sed "s|^\./|$file_path/|")
+  # Note: $file_path is intentionally unquoted to allow glob expansion (e.g. date ranges like 2026011[5-7])
+  files=$(find $file_path -name "$filename_pattern" -type f 2>/dev/null)
 
   local file_count=0
-  local total_files=$(cd "$file_path" && find . -name "$filename_pattern" -type f 2>/dev/null | wc -l)
+  local total_files=$(find $file_path -name "$filename_pattern" -type f 2>/dev/null | wc -l)
   local total_count=0
 
   if [[ $total_files -eq 0 ]]; then
