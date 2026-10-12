@@ -32,13 +32,41 @@ BZGREP="/bin/bzgrep"
 CIVIHOST="civi1002"
 FRLOGHOST="frlog1002"
 
+### CTRL-C HANDLING ###
+# First Ctrl-C skips the current path, a second within 2s quits
+SKIP_PATH="false"
+LAST_INT=0
+SUMMARY=()
+
 # Added to reset terminal on script exit
 trap 'tput sgr0' EXIT
 trap ctrl_c INT
 
+function print_summary() {
+  [[ ${#SUMMARY[@]} -eq 0 ]] && return 0
+  echo -e "\n${YELLOW}# Summary${RESET}"
+  for line in "${SUMMARY[@]}"; do
+    echo -e "${YELLOW}# $line${RESET}"
+  done
+}
+
 function ctrl_c() {
-  tput sgr0
-  exit
+  local now
+  now=$(date +%s)
+  if (( now - LAST_INT < 2 )); then
+    echo
+    print_summary
+    tput sgr0
+    exit 130
+  fi
+  LAST_INT=$now
+  SKIP_PATH="true"
+  echo -e "\n${YELLOW}# Skipping this path. Press Ctrl-C again within 2s to quit.${RESET}"
+}
+
+# Usage: add_summary <path> <status> <details>
+function add_summary() {
+  SUMMARY+=("$(printf '%-55s %-9s %s' "$1" "$2" "$3")")
 }
 
 function display_help() {
@@ -48,16 +76,21 @@ function display_help() {
   echo -e "  logdog [options] query"
   echo -e "  logdog -f filename"
   echo -e "  logdog -f filename [filtered_query]"
+  echo -e "\n  Short options (-d, -o, -i, -f) must come before the query. --first and --file can go anywhere."
   echo -e "\nOptions:"
-  echo -e "  -d YYYYMMDD      Add a custom date filter when searching (defaults to yesterday's date)"
+  echo -e "  -d YYYYMMDD      Search archives from this date. A prefix like 202610 matches the whole month."
+  echo -e "                   Without -d, current logs and the latest archives are searched."
   echo -e "  -o folder_name   Write file hits to a custom folder name (defaults to query as folder name)"
   echo -e "  -i               Display the directories on the host it will search in"
   echo -e "  -f, --file       Search for filenames instead of file contents. If a second argument is provided, it is used as a filtered query within the matched files."
   echo -e "  -h               Print this help"
   echo -e "\nFlags:"
   echo -e "  --first          Limit results to the first hit for each file scanned"
+  echo -e "\nCtrl-C skips the path currently being searched. Press it twice within 2s to quit."
   echo -e "\nExamples:"
   echo -e "  logdog order_id_12345"
+  echo -e "  logdog -d 20241115 order_id_12345"
+  echo -e "  logdog order_id_12345 --first"
   echo -e "  logdog -f payments-paypal"
   echo -e "  logdog -f payments-paypal-202411 paypal_order_id_sometime_in_november"
   exit 0
@@ -68,21 +101,22 @@ FILENAME_SEARCH="false"
 SINGLE_RESULT="false"
 INFO_FLAG="false"
 
-# Handle long options
+# Handle long options (pulled out of the args so they can go anywhere)
+ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --first)
       SINGLE_RESULT="true"
-      shift
       ;;
     --file)
       FILENAME_SEARCH="true"
-      shift
       ;;
     *)
+      ARGS+=("$arg")
       ;;
   esac
 done
+set -- "${ARGS[@]}"
 
 # Handle short options
 while getopts ":fid:o:h" opt; do
@@ -340,6 +374,7 @@ function filename_search() {
     done <<< "$matching_files_list"
   else
     echo -e "${YELLOW}# No files matching '*$query*' found in $file_path${RESET}"
+    add_summary "$file_path" "no files" ""
     return 0
   fi
   echo -e "${YELLOW}------------------------------------------------------------------${RESET}"
@@ -348,7 +383,10 @@ function filename_search() {
   if [[ -n "$CONTENT_QUERY" ]]; then
     echo -e "${YELLOW}# Searching within matched files for query matching '$CONTENT_QUERY'${RESET}"
     local total_count=0
+    local file_count=0
+    local status="done"
     for file in "${matching_files[@]}"; do
+      file_count=$((file_count + 1))
       local result
       # Choose the appropriate grepper based on file extension
       if [[ "$file" == *.gz ]]; then
@@ -364,8 +402,15 @@ function filename_search() {
       else
         result=$("$GREPPER" -i "$CONTENT_QUERY" "$file")
       fi
+      local rc=$?
 
-      if [[ $? -eq 0 && -n "$result" ]]; then
+      # Ctrl-C interrupts the grep for this file, so don't count its partial output
+      if [[ "$SKIP_PATH" == "true" ]]; then
+        status="skipped"
+        break
+      fi
+
+      if [[ $rc -eq 0 && -n "$result" ]]; then
         local count
         count=$(echo "$result" | wc -l)
         echo -e "\n${YELLOW}# $file hits: $count${RESET}"
@@ -378,6 +423,13 @@ function filename_search() {
     done
     echo -e "\n${YELLOW}# Total hits in matched files: $total_count${RESET}"
     echo -e "${YELLOW}------------------------------------------------------------------${RESET}"
+    if [[ "$status" == "skipped" ]]; then
+      add_summary "$file_path" "$status" "$total_count hits (stopped at file $file_count/${#matching_files[@]})"
+    else
+      add_summary "$file_path" "$status" "$total_count hits"
+    fi
+  else
+    add_summary "$file_path" "done" "$total_matching_files files"
   fi
 }
 
@@ -393,13 +445,19 @@ function content_search() {
   local files
   # Note: $file_path is intentionally unquoted to allow glob expansion (e.g. date ranges like 2026011[5-7])
   files=$(find $file_path -name "$filename_pattern" -type f 2>/dev/null)
+  if [[ "$SKIP_PATH" == "true" ]]; then
+    add_summary "$file_path" "skipped" "0 hits (stopped while listing files)"
+    return 0
+  fi
 
   local file_count=0
   local total_files=$(find $file_path -name "$filename_pattern" -type f 2>/dev/null | wc -l)
   local total_count=0
+  local status="done"
 
   if [[ $total_files -eq 0 ]]; then
     echo -e "${YELLOW}# No files found matching '$filename_pattern' in $file_path${RESET}"
+    add_summary "$file_path" "no files" ""
     return 0
   fi
 
@@ -412,8 +470,15 @@ function content_search() {
     else
       result=$("$grepper" -i "$query" "$file")
     fi
+    local rc=$?
 
-    if [[ $? -eq 0 && -n "$result" ]]; then
+    # Ctrl-C interrupts the grep for this file, so don't count its partial output
+    if [[ "$SKIP_PATH" == "true" ]]; then
+      status="skipped"
+      break
+    fi
+
+    if [[ $rc -eq 0 && -n "$result" ]]; then
       local count
       count=$(echo "$result" | wc -l)
       echo -e "\n${YELLOW}# $file hits: $count${RESET}"
@@ -426,16 +491,24 @@ function content_search() {
   done
   echo -e "\n${YELLOW}# Total hits in $file_path: $total_count${RESET}"
   echo -e "${YELLOW}------------------------------------------------------------------${RESET}"
+  if [[ "$status" == "skipped" ]]; then
+    add_summary "$file_path" "$status" "$total_count hits (stopped at file $file_count/$total_files)"
+  else
+    add_summary "$file_path" "$status" "$total_count hits"
+  fi
 }
 
 ### MAIN ###
 for index in "${!PATHS[@]}"; do
+  SKIP_PATH="false"
   if [[ "$FILENAME_SEARCH" == "true" ]]; then
     filename_search "${PATHS[index]}" "$QUERY"
   else
     content_search "${PATHS[index]}" "${PATTERNS[index]}" "${GREPPERS[index]}" "$QUERY"
   fi
 done
+
+print_summary
 
 END_TIME=$(date +%s)
 ELAPSED_TIME=$((END_TIME - START_TIME))
