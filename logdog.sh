@@ -171,24 +171,24 @@ function configure_civi_paths() {
       # No date specified; search current logs and today's archives
       PATHS=(
         "$CIVI_LOG_PATH"
+        "$CIVI_SYSLOG_PATH"
         "$CIVI_CURRENT_PROCESS_CONTROL_PATH"
         "$CIVI_CURRENTISH_PROCESS_CONTROL_PATH"
         "$FRLOG_ARCHIVE_PATH"
-        "$CIVI_SYSLOG_PATH"
       )
       PATTERNS=(
         "CiviCRM*.log*"
+        "syslog"
         "*.log"
         "*.bz2"
         "*-$CURRENT_DATE.gz"
-        "syslog"
       )
       GREPPERS=(
         "$GREP"
+        "$GREP"
+        "$GREP"
         "$BZGREP"
-        "$GREP"
         "$ZGREP"
-        "$GREP"
       )
     else
       # Date specified; search only archives matching the date
@@ -204,7 +204,7 @@ function configure_civi_paths() {
       )
       GREPPERS=(
         "$BZGREP"
-        "$GREP"
+        "$BZGREP"
         "$ZGREP"
       )
     fi
