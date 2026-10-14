@@ -444,14 +444,15 @@ function content_search() {
 
   local files
   # Note: $file_path is intentionally unquoted to allow glob expansion (e.g. date ranges like 2026011[5-7])
-  files=$(find $file_path -name "$filename_pattern" -type f 2>/dev/null)
+  # -H follows $file_path if it's a symlink (e.g. /var/log/remote) without following links inside it
+  files=$(find -H $file_path -name "$filename_pattern" -type f 2>/dev/null)
   if [[ "$SKIP_PATH" == "true" ]]; then
     add_summary "$file_path" "skipped" "0 hits (stopped while listing files)"
     return 0
   fi
 
   local file_count=0
-  local total_files=$(find $file_path -name "$filename_pattern" -type f 2>/dev/null | wc -l)
+  local total_files=$(find -H $file_path -name "$filename_pattern" -type f 2>/dev/null | wc -l)
   local total_count=0
   local status="done"
 
